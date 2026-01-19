@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Beer Shooter</title>
+
+<style>
+html,body{
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  background:#222;
+  color:white;
+  font-family:Arial;
+}
+canvas{display:block}
+#ui{
+  position:fixed;
+  top:10px;
+  left:10px;
+  z-index:10;
+}
+button{
+  padding:6px 12px;
+  margin-right:6px;
+  cursor:pointer;
+}
+#menu{
+  position:fixed;
+  inset:0;
+  background:#000c;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  z-index:20;
+}
+</style>
+</head>
+<body>
+
+<div id="menu">
+  <h1>🍺 Beer Shooter</h1>
+  <button onclick="startGame()">СТАРТ</button>
+</div>
+
+<div id="ui">
+  <button onclick="togglePause()">⏸ Пауза</button>
+  <div id="stats"></div>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
+}
+resize();
+addEventListener("resize",resize);
+
+// ===== ЛИЦО =====
+const faceImg = new Image();
+faceImg.src = "face.png";
+let faceLoaded = false;
+faceImg.onload = ()=>faceLoaded=true;
+
+// ===== ЗВУКИ =====
+const shotSound = new Audio("https://actions.google.com/sounds/v1/weapons/pistol_shot.ogg");
+
+// 🎵 МУЗЫКА
+const music = new Audio("music.mp3");
+music.loop = true;
+music.volume = 0.3;
+
+// ===== ИГРА =====
+let game=false;
+let paused=false;
+let score=0;
+
+const player={
+  x:()=>canvas.width/2,
+  y:()=>canvas.height-90,
+  hp:100
+};
+
+const mouse={x:0,y:0};
+onmousemove=e=>{mouse.x=e.clientX; mouse.y=e.clientY;}
+
+let bullets=[];
+let enemies=[];
+let shards=[]; // осколки
+
+function startGame(){
+  menu.style.display="none";
+  score=0;
+  player.hp=100;
+  bullets=[];
+  enemies=[];
+  shards=[];
+  game=true;
+  paused=false;
+
+  music.currentTime=0;
+  music.play();
+}
+
+function togglePause(){
+  if(!game) return;
+  paused=!paused;
+  if(paused) music.pause();
+  else music.play();
+}
+
+// ===== ВРАГИ (БУТЫЛКИ) =====
+const bottleColors=["#3a7d3a","#7b4a12","#1e5fa3"];
+
+function spawnEnemy(){
+  enemies.push({
+    x:Math.random()*(canvas.width-40),
+    y:-80,
+    hp:50,
+    color:bottleColors[Math.floor(Math.random()*bottleColors.length)]
+  });
+}
+setInterval(()=>game&&!paused&&spawnEnemy(),1200);
+
+// ===== СТРЕЛЬБА =====
+onmousedown=()=>{
+  if(!game||paused) return;
+  const a=Math.atan2(mouse.y-player.y(),mouse.x-player.x());
+  bullets.push({
+    x:player.x(),
+    y:player.y()-50,
+    vx:Math.cos(a)*10,
+    vy:Math.sin(a)*10
+  });
+  shotSound.currentTime=0;
+  shotSound.play();
+};
+
+// ===== ЛОГИКА =====
+function update(){
+  if(!game||paused) return;
+
+  bullets.forEach(b=>{b.x+=b.vx; b.y+=b.vy;});
+  enemies.forEach(e=>e.y+=2);
+
+  shards.forEach(s=>{
+    s.x+=s.vx;
+    s.y+=s.vy;
+    s.life--;
+  });
+
+  bullets.forEach(b=>{
+    enemies.forEach(e=>{
+      if(b.x>e.x&&b.x<e.x+40&&b.y>e.y&&b.y<e.y+80){
+        e.hp-=25;
+        b.dead=true;
+        if(e.hp<=0){
+          score+=10;
+          createShards(e);
+          e.dead=true;
+        }
+      }
+    });
+  });
+
+  enemies.forEach(e=>{
+    if(e.y>canvas.height){
+      player.hp-=10;
+      e.dead=true;
+    }
+  });
+
+  bullets=bullets.filter(b=>!b.dead);
+  enemies=enemies.filter(e=>!e.dead);
+  shards=shards.filter(s=>s.life>0);
+
+  if(player.hp<=0){
+    game=false;
+    music.pause();
+    menu.style.display="flex";
+    menu.innerHTML=`
+      <h1>💀 GAME OVER</h1>
+      <h2>⭐ Очки: ${score}</h2>
+      <button onclick="location.reload()">Заново</button>
+    `;
+  }
+}
+
+// ===== ОСКОЛКИ =====
+function createShards(e){
+  for(let i=0;i<8;i++){
+    shards.push({
+      x:e.x+20,
+      y:e.y+40,
+      vx:(Math.random()-0.5)*6,
+      vy:(Math.random()-0.5)*6,
+      life:30,
+      color:e.color
+    });
+  }
+}
+
+// ===== РИСОВАНИЕ =====
+function drawPlayer(){
+  const px = player.x();
+  const py = player.y();
+
+  ctx.fillStyle="#444";
+  ctx.fillRect(px-15, py, 10, 30);
+  ctx.fillRect(px+5, py, 10, 30);
+
+  ctx.fillStyle="green";
+  ctx.fillRect(px-20, py-40, 40, 40);
+
+  if(faceLoaded){
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(px, py-55, 18, 0, Math.PI*2);
+    ctx.clip();
+    ctx.drawImage(faceImg, px-18, py-73, 36, 36);
+    ctx.restore();
+  }
+}
+
+function drawGun(){
+  const a=Math.atan2(mouse.y-player.y(),mouse.x-player.x());
+  ctx.save();
+  ctx.translate(player.x(),player.y()-35);
+  ctx.rotate(a);
+  ctx.fillStyle="black";
+  ctx.fillRect(0,-3,30,6);
+  ctx.restore();
+}
+
+function drawEnemies(){
+  enemies.forEach(e=>{
+    ctx.fillStyle=e.color;
+    ctx.fillRect(e.x+12,e.y,16,20);
+    ctx.fillRect(e.x,e.y+20,40,60);
+
+    ctx.fillStyle="white";
+    ctx.font="10px Arial";
+    ctx.fillText("ПИВО",e.x+8,e.y+65);
+
+    if(faceLoaded){
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(e.x+20,e.y+40,10,0,Math.PI*2);
+      ctx.clip();
+      ctx.drawImage(faceImg,e.x+10,e.y+30,20,20);
+      ctx.restore();
+    }
+  });
+}
+
+function drawShards(){
+  shards.forEach(s=>{
+    ctx.fillStyle=s.color;
+    ctx.fillRect(s.x,s.y,4,4);
+  });
+}
+
+function drawBullets(){
+  ctx.fillStyle="yellow";
+  bullets.forEach(b=>ctx.fillRect(b.x,b.y,4,4));
+}
+
+function drawUI(){
+  stats.innerHTML=`❤️ HP: ${player.hp}<br>⭐ Очки: ${score}${paused?"<br>⏸ ПАУЗА":""}`;
+}
+
+// ===== ЦИКЛ =====
+function loop(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  update();
+  drawEnemies();
+  drawShards();
+  drawPlayer();
+  drawGun();
+  drawBullets();
+  drawUI();
+  requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
+
+
